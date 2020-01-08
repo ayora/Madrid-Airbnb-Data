@@ -1,0 +1,326 @@
+---
+title: "Tipología y Ciclo de Vida de los Datos - Práctica 2"
+author: "Alberto Ayora Pais"
+date: "Enero 2020"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    highlight: default
+    number_sections: no
+    theme: flatly
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(VIM)
+library(nortest)
+
+```
+
+# Limpieza y Análisis de los datos
+
+## 1. Introducción
+
+### 1.1. Presentación
+***
+
+En esta práctica se elabora un caso práctico orientado a aprender a identificar los datos relevantes para un proyecto analítico y usar las herramientas de integración, limpieza, validación y análisis de las mismas. Para hacer esta práctica tendréis que trabajar en grupos de 2 personas. Tendréis que entregar un solo archivo con el enlace Github (https://github.com) donde se encuentren las soluciones incluyendo los nombres de los componentes del equipo. Podéis utilizar la Wiki de Github para describir vuestro equipo y los diferentes archivos que corresponden a vuestra entrega.
+
+### 1.2. Competencias
+***
+En esta práctica se desarrollan las siguientes competencias del Máster de Data Science:
+
+* Capacidad de analizar un problema en el nivel de abstracción adecuado a cada situación y aplicar las habilidades y conocimientos adquiridos para abordarlo y resolverlo.
+
+* Capacidad para aplicar las técnicas específicas de tratamiento de datos (integración, transformación, limpieza y validación) para su posterior análisis.
+
+### 1.3. Objetivos
+***
+
+Los objetivos concretos de esta práctica son:
+
+* Aprender a aplicar los conocimientos adquiridos y su capacidad de resolución de problemas en entornos nuevos o poco conocidos dentro de contextos más amplios o multidisciplinares.
+
+* Saber identificar los datos relevantes y los tratamientos necesarios (integración, limpieza y validación) para llevar a cabo un proyecto analítico.
+
+* Aprender a analizar los datos adecuadamente para abordar la información contenida en los datos.
+
+* Identificar la mejor representación de los resultados para aportar conclusiones sobre el problema planteado en el proceso analítico.
+
+* Actuar con los principios éticos y legales relacionados con la manipulación de datos en función del ámbito de aplicación.
+
+* Desarrollar las habilidades de aprendizaje que les permitan continuar estudiando de un modo que tendrá que ser en gran medida autodirigido o autónomo.
+
+* Desarrollar la capacidad de búsqueda, gestión y uso de información y recursos en el ámbito de la ciencia de datos.
+
+
+
+## 2. Resolución
+***
+
+### 2.1. Descripción del dataset
+***
+
+El dataset proporcionado en la URL https://www.kaggle.com/rusiano/madrid-airbnb-data contiene información procedente de la web www.airbnb.com para la ciudad de Madrid. Esta información será muy útil para realizar un estudio del estado del alquiler de habitaciones de este tipo en la ciudad de Madrid y obtener información sobre qué factores inciden más sobre el alquiler del precio, zonas donde saldría más rentable alquilar y en qué época del año, etcc. 
+
+
+
+### 2.2. Selección de datos
+***
+Cargamos los diferentes datasets y hacemos una primera selección de variables en el dataset **listings_detailed.csv**, con el objetivo de reducir el número de variables a trabajar en el estudio. Las variables descartadas se trata de variables que no se quieren analizar en este primer estudio y se considera que su eliminación no afectaría a la integridad de la muestra original. 
+
+```{r, warning=FALSE}
+
+# datasets secundarios
+neighbourhoods.dataset <- read.csv('neighbourhoods.csv', header = TRUE, sep = ',', strip.white = TRUE)
+
+head(neighbourhoods.dataset)
+
+calendar.dataset <- read.csv('calendar.csv', header = TRUE, sep = ',', strip.white = TRUE)
+
+head(calendar.dataset)
+
+# dataset principal
+dataset.aux <- read.csv("listings_detailed.csv", header = TRUE, sep = ',', strip.white = TRUE)
+
+listings.detailed.dataset <- select(dataset.aux, "id", "host_id", "host_response_time", "host_response_rate", "host_acceptance_rate", "host_identity_verified", "street", "neighbourhood_cleansed", "neighbourhood_group_cleansed", "city", "state", "zipcode", "country_code", "country", "latitude", "longitude", "is_location_exact", "room_type", "accommodates", "bathrooms", "bedrooms", "beds", "bed_type", "square_feet", "price", "security_deposit", "cleaning_fee", "number_of_reviews", "reviews_per_month", "number_of_reviews_ltm", "first_review", "last_review", "review_scores_rating", "review_scores_accuracy", "review_scores_cleanliness", "review_scores_checkin", "review_scores_communication", "review_scores_location", "review_scores_value", "instant_bookable", "cancellation_policy")
+
+
+# las variables relacionadas con los precios son de tipo Factor en los datasets, es necesario convertirlas a tipo numérico para poder trabajar con ellas adecuadamente
+
+listings.detailed.dataset$price <- as.numeric(gsub('$','', as.character(listings.detailed.dataset$price), fixed = TRUE))
+listings.detailed.dataset$security_deposit <- as.numeric(gsub('$','', as.character(listings.detailed.dataset$security_deposit), fixed = TRUE))
+listings.detailed.dataset$cleaning_fee <-  as.numeric(gsub('$','', as.character(listings.detailed.dataset$cleaning_fee), fixed = TRUE))
+  
+calendar.dataset$price <-  as.numeric(gsub('$','', as.character(calendar.dataset$price), fixed = TRUE))
+calendar.dataset$adjusted_price <- as.numeric(gsub('$','', as.character(calendar.dataset$adjusted_price), fixed = TRUE))
+
+```
+
+El dataset principal lo completaremos con información extraida del dataset **calendar.csv**. Calcularemos el precio mínimo y máximo para cada una de las habitaciones de las que disponemos de información:
+
+```{r, warning=FALSE}
+
+min.max.prices <- calendar.dataset %>% group_by(listing_id) %>% summarise(min_price = min(price), max_price = max(price)) 
+
+listings.detailed.dataset <- merge(listings.detailed.dataset, min.max.prices, by.x = 'id', by.y = 'listing_id', all.x = TRUE)
+
+head(listings.detailed.dataset[, c('id', 'price', 'min_price', 'max_price')])
+
+```
+
+El conjunto de datos final con el que se va a realizar el estudio contiene `r nrow(listings.detailed.dataset)` registros y  `r ncol(listings.detailed.dataset)` variables. 
+
+Descripción de los tipo de datos y valores contenidos en cada variable del dataset:
+
+```{r, warning=FALSE}
+
+str(listings.detailed.dataset)
+
+```
+
+### 2.3. Limpieza de datos
+***
+Una vez cargamos los datasets con los que vamos a trabajar, llevamos a cabo una serie de operaciones para realizar la limpieza de los datos. 
+
+Una de las primeras operaciones será la de comprobar que las variables **neighbourhood_cleansed** y **neighbourhood_group_cleansed** contienen los valores correctos validándolos contra el maestro de barrios que contiene el fichero **neighbourhood.csv**
+
+```{r, warning=FALSE}
+
+match.neighbourhoods <- match(c(listings.detailed.dataset$neighbourhood_group_cleansed, listings.detailed.dataset$neighbourhood_cleansed),
+                              c(neighbourhoods.dataset$neighbourhood_group, neighbourhoods.dataset$neighbourhood), nomatch = -1)
+
+index.no.match <- which(match.neighbourhoods == -1)
+
+length(index.no.match)
+
+```
+
+Una vez abordado este punto, pasamos a revisar las variables que contienen ceros, elementos vacíos y/o valores extremos:
+
+```{r, warning=FALSE}
+
+# identificación de elementos vacíos
+colSums(is.na(listings.detailed.dataset))
+
+```
+
+Una vez identificados debemos decidir cómo manejar estos registros que contienen valores desconocidos en algunas de las variables. Una opción podría ser eliminar esos registros que incluyen este tipo de valores, pero ello supondría desaprovechar información.
+
+Como alternativa, se empleará un método de imputación de valores basado en la similitud o diferencia entre los registros: la imputación basada en k vecinos más próximos (en inglés, kNN-imputation). La elección de esta alternativa se realiza bajo la hipótesis de que nuestros registros guardan cierta relación. No obstante, es mejor trabajar con datos “aproximados” que con los propios elementos vacíos.
+
+Para usar este método vamos a partir de ciertas suposiciones previas. Por ejemplo, para las variables **price** y **cleaning_fee** entendemos que un alojamiento con características similares en un mismo vecindario deberían tener unos valores similares.
+
+```{r, warning=FALSE}
+
+# al calcular el precio mínimo y máximo de algunos de los alojamientos, ya disponemos del valor para la variable price
+listings.detailed.dataset$price <- ifelse(is.na(listings.detailed.dataset$price), listings.detailed.dataset$min_price, listings.detailed.dataset$price)
+
+knn.vars <- select(listings.detailed.dataset, c('neighbourhood_cleansed', 'neighbourhood_group_cleansed', 'room_type', 'accommodates', 'bathrooms',
+                      'bedrooms', 'beds', 'bed_type', 'price', 'cleaning_fee'))
+
+listings.detailed.dataset$price <- kNN(knn.vars)$price
+listings.detailed.dataset$cleaning_fee <- kNN(knn.vars)$cleaning_fee
+
+```
+
+En cuanto a las variables **min_price** y **max_price**, como ya tenemos cubierta la variable **price** le asignaremos el valor de esta variable por defecto:
+
+```{r, warning=FALSE}
+
+listings.detailed.dataset$min_price <- ifelse(is.na(listings.detailed.dataset$min_price), listings.detailed.dataset$price, listings.detailed.dataset$min_price)
+
+listings.detailed.dataset$max_price <- ifelse(is.na(listings.detailed.dataset$max_price), listings.detailed.dataset$price, listings.detailed.dataset$max_price)
+
+```
+
+```{r, warning=FALSE}
+
+colSums(is.na(listings.detailed.dataset))
+
+```
+
+En cuanto a las variables **security_deposit**, **square_feet** como a todas las relativas a comentarios sobre las habitaciones, se mantendrán sus registros. Únicamente cando se haga un análisis donde se involucren se descartaran del proceso para que no se tengan en cuenta, ya que no sería posible inferir un valor concreto. 
+
+Los valores extremos son aquellos datos que se encuentran muy alejados de la distribución normal de una variable o población. Para identificarlos, podemos hacer uso de dos vías: (1) representar un diagrama de caja por cada variable y ver qué valores distan mucho del rango intercuartílico (la caja) o (2) utilizar la función boxplots.stats() de R, la cual se emplea a continuación.
+
+Revisamos las variables numéricas en busca de posibles valores extremos:
+
+```{r, warning=FALSE}
+
+par(mfrow=c(2, 4))
+
+  boxplot(listings.detailed.dataset$accommodates, xlab = 'accommodates')
+
+  boxplot(listings.detailed.dataset$bathrooms, xlab = 'bathrooms')
+  
+  boxplot(listings.detailed.dataset$bedrooms, xlab = 'bedrooms')
+  
+  boxplot(listings.detailed.dataset$beds, xlab = 'beds')
+  
+  boxplot(listings.detailed.dataset$square_feet, xlab = 'square_feet')
+
+  boxplot(listings.detailed.dataset$price, xlab = 'price')
+  
+  boxplot(listings.detailed.dataset$security_deposit, xlab = 'security_deposit')
+  
+  boxplot(listings.detailed.dataset$cleaning_fee, xlab = 'cleaning_fee')
+
+```
+
+
+### 2.4. Análisis de datos
+***
+
+Se seleccionan los grupos dentro del conjunto de datos que pueden resultar interesantes para analizar y/o comparar:
+
+```{r, warning=FALSE}
+
+# agrupación por tipo de habitación
+room.data.entire_home <- listings.detailed.dataset[listings.detailed.dataset$room_type == 'Entire home/apt', ]
+room.data.hotel_room <- listings.detailed.dataset[listings.detailed.dataset$room_type == 'Hotel room', ]
+room.data.private_room <- listings.detailed.dataset[listings.detailed.dataset$room_type == 'Private room', ] 
+room.data.shared_room <- listings.detailed.dataset[listings.detailed.dataset$room_type == 'Shared room', ] 
+
+# agrupación por tipo de cama
+bed.data.airbed <- listings.detailed.dataset[listings.detailed.dataset$bed_type == 'Airbed', ]
+bed.data.couch<- listings.detailed.dataset[listings.detailed.dataset$bed_type == 'Couch', ]
+bed.data.futon <- listings.detailed.dataset[listings.detailed.dataset$bed_type == 'Futon', ]
+bed.data.sofa <- listings.detailed.dataset[listings.detailed.dataset$bed_type == 'Pull-out Sofa', ]
+bed.data.real_bed <- listings.detailed.dataset[listings.detailed.dataset$bed_type == 'Real Bed', ]
+
+```
+
+Comprobación de la normalidad y homogeneidad de la varianza. Se empleará la prueba de normalidad de *Anderson-Darling* para la comprobación de que los valores que toman nuestras variables cuantitativas provienen de una población distribuidad normalmente:
+
+```{r, warning=FALSE}
+
+alpha = 0.05
+col.names = colnames(listings.detailed.dataset)
+
+for (i in 1:ncol(listings.detailed.dataset)) {
+
+    if (i == 1) cat("Variables que no siguen una distribución normal:\n")
+    if (is.integer(listings.detailed.dataset[,i]) | is.numeric(listings.detailed.dataset[,i])) {
+        p_val = ad.test(listings.detailed.dataset[,i])$p.value 
+      
+        if (p_val < alpha) {
+            cat(col.names[i])
+        
+          if (i < ncol(listings.detailed.dataset) - 1) cat(", ")
+        
+          if (i %% 3 == 0) cat("\n") 
+        }
+    } 
+  }
+
+```
+
+Para el estudio de la homogeneidad de varianzas se aplicará un test de *Fligner-Killeen*. En este caso en concreto, se estudiará la homogeneidad referente a los grupos conformados por las diferentes tipos de habitaciones. En el siguiente test, la hipótesis nula consiste en que ambas varianzas son iguales.
+
+```{r, warning=FALSE}
+
+fligner.test(price ~ room_type, data = listings.detailed.dataset)
+
+```
+
+Al obtener un p-valor inferior a 0,05, de rechaza la hipótesis de que las varianzas de ambas muestras no son homogéneas.
+
+Por otro lado, queremos llevar a cabo un análisis de correlación entre las distintas variables para determinar cuales de ellas tienen mayor influencia sobre el precio de la habitación, usando para ello el coeficiente de correlación de *Spearman*:
+
+```{r, warning=FALSE}
+
+corr_matrix <- matrix(nc = 2, nr = 0) 
+
+colnames(corr_matrix) <- c("estimate", "p-value")
+  
+for (colname in colnames(listings.detailed.dataset)) {
+  
+  if(colname == 'price') next
+
+  if (is.integer(listings.detailed.dataset[ , colname]) | is.numeric(listings.detailed.dataset[,colname]) ) { 
+    
+    spearman_test = cor.test(listings.detailed.dataset[ , colname],
+                             listings.detailed.dataset[ , 'price'],
+                             method = "spearman")
+    
+    corr_coef = spearman_test$estimate
+    p_val = spearman_test$p.value
+    
+    pair = matrix(ncol = 2, nrow = 1)
+    pair[1][1] = corr_coef
+    pair[2][1] = p_val
+    corr_matrix <- rbind(corr_matrix, pair) 
+    rownames(corr_matrix)[nrow(corr_matrix)] <- colname
+  } 
+}
+
+print(corr_matrix)
+
+```
+
+### 2.5. Representación de los resultados
+***
+
+### 2.6. Resolución del problema
+***
+
+### 2.7. Exportación de código R y de los datos producidos
+***
+
+El código R está incluido en el fichero con extensión **.rmd**.
+
+Los datos de salida se exportarán mediante el siguiente código:
+
+```{r, warning=FALSE}
+
+write.csv(listings.detailed.dataset, file="airbnb_data_clean.csv")
+
+```
+
